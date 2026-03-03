@@ -2,8 +2,6 @@
 
 Una statusline avanzata per [Claude Code](https://claude.ai/code) che mostra informazioni complete sul contesto, MCP servers, skills e plugins con barre colorate pastello.
 
-![Statusline Preview](preview.png)
-
 ## Caratteristiche
 
 - **Modello e Profilo**: Mostra il modello Claude in uso con eventuale profilo colorato
@@ -22,6 +20,25 @@ Una statusline avanzata per [Claude Code](https://claude.ai/code) che mostra inf
 
 ## Installazione Rapida
 
+### Installazione automatica (consigliato)
+
+```bash
+# Scarica e configura tutto automaticamente
+mkdir -p ~/.claude && \
+curl -o ~/.claude/statusline-command.sh https://raw.githubusercontent.com/develdj/statusline/main/statusline-command.sh && \
+chmod +x ~/.claude/statusline-command.sh && \
+cat > ~/.claude/settings.json << 'EOF'
+{
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/statusline-command.sh"
+  }
+}
+EOF
+```
+
+### Installazione manuale
+
 ### 1. Crea la directory Claude
 
 ```bash
@@ -31,20 +48,9 @@ mkdir -p ~/.claude
 ### 2. Scarica lo script statusline
 
 ```bash
-# Scarica lo script
-curl -o ~/.claude/statusline-command.sh https://raw.githubusercontent.com/YOUR_REPO/statusline-command.sh
-
-# Rendilo eseguibile
+curl -o ~/.claude/statusline-command.sh https://raw.githubusercontent.com/develdj/statusline/main/statusline-command.sh
 chmod +x ~/.claude/statusline-command.sh
 ```
-
-Oppure crea il file manualmente:
-
-```bash
-nano ~/.claude/statusline-command.sh
-```
-
-Vedi [statusline-command.sh](#codice-completo-statusline-commandsh) per il codice completo.
 
 ### 3. Configura settings.json
 
@@ -245,6 +251,47 @@ Lo script legge queste variabili d'ambiente:
 - `CONDA_DEFAULT_ENV` - Conda environment
 - `POETRY_ACTIVE` - Poetry environment
 - `CLAUDE_CODE_MAX_OUTPUT_TOKENS` - Limite output tokens
+
+## Uninstall / Rollback
+
+Se vuoi rimuovere la statusline e ripristinare la configurazione originale:
+
+### Uninstall automatico
+
+```bash
+curl -o /tmp/uninstall.sh https://raw.githubusercontent.com/develdj/statusline/main/uninstall.sh
+chmod +x /tmp/uninstall.sh
+/tmp/uninstall.sh
+```
+
+### Uninstall manuale
+
+```bash
+# Rimuovi lo script
+rm -f ~/.claude/statusline-command.sh
+
+# Rimuovi il profilo (se presente)
+rm -f ~/.claude/.current_profile
+
+# Rimuovi la configurazione statusLine da settings.json
+# (richiede jq)
+jq 'del(.statusLine)' ~/.claude/settings.json > /tmp/settings.json && mv /tmp/settings.json ~/.claude/settings.json
+```
+
+### Cosa viene rimosso
+
+- ✅ `statusline-command.sh`
+- ✅ Configurazione `statusLine` da settings.json
+- ✅ File `.current_profile`
+
+### Cosa NON viene rimosso
+
+- ❌ MCP servers configurati
+- ❌ Skills installate
+- ❌ Plugins
+- ❌ Altre configurazioni in settings.json
+
+I backup vengono salvati in `~/.claude/backups/` prima di ogni rimozione.
 
 ## Troubleshooting
 
