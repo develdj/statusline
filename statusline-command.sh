@@ -298,8 +298,22 @@ fi
 printf "\n"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LINE 7+: MCP Servers list (Global + Local, tab-separated, 3 per line)
+# LINE 7: MCP Servers list (Global + Local combined)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+# Count global vs local MCP servers
+GLOBAL_MCP_COUNT=0
+LOCAL_MCP_COUNT=0
+for ((i=0; i<MCP_TOTAL; i++)); do
+    [ "${MCP_SCOPE[$i]}" = "global" ] && GLOBAL_MCP_COUNT=$((GLOBAL_MCP_COUNT + 1))
+    [ "${MCP_SCOPE[$i]}" = "local" ] && LOCAL_MCP_COUNT=$((LOCAL_MCP_COUNT + 1))
+done
+
+# Count local plugins if local settings exist
+LOCAL_PLUGINS=0
+if [ -n "$LOCAL_SETTINGS" ]; then
+    LOCAL_PLUGINS=$(jq -r '[.enabledPlugins | to_entries[] | select(.value == true)] | length' "$LOCAL_SETTINGS" 2>/dev/null || echo "0")
+fi
 
 # Function to format a single MCP server
 format_mcp_server() {
@@ -318,8 +332,6 @@ print_mcp_group() {
     local header=$2
     local count=0
     local line=""
-
-    echo -e "  \033[90m│\033[0m \033[90m⚙ $header:\033[0m"
 
     for ((i=0; i<MCP_TOTAL; i++)); do
         [ "${MCP_SCOPE[$i]}" != "$scope" ] && continue
@@ -341,49 +353,22 @@ print_mcp_group() {
     fi
 }
 
-# Print Global servers
-has_global=0
-for ((i=0; i<MCP_TOTAL; i++)); do
-    [ "${MCP_SCOPE[$i]}" = "global" ] && { has_global=1; break; }
-done
-[ $has_global -eq 1 ] && print_mcp_group "global" "Global"
+# Show Global servers with count
+if [ $GLOBAL_MCP_COUNT -gt 0 ]; then
+    echo -e "  \033[90m│\033[0m \033[90m⚙ global\033[0m \033[37m($GLOBAL_MCP_COUNT MCP)\033[0m"
+    print_mcp_group "global" "Global"
+fi
 
-# Print Local servers
-has_local=0
-for ((i=0; i<MCP_TOTAL; i++)); do
-    [ "${MCP_SCOPE[$i]}" = "local" ] && { has_local=1; break; }
-done
-if [ $has_local -eq 1 ]; then
+# Show Local servers with count and path
+if [ $LOCAL_MCP_COUNT -gt 0 ]; then
+    LOCAL_PATH_DISPLAY="${LOCAL_SETTINGS/#$HOME/\~}"
+    echo -e "  \033[90m│\033[0m \033[32m⚙ local\033[0m \033[37m($LOCAL_MCP_COUNT MCP, $LOCAL_PLUGINS plugins)\033[0m \033[90m→\033[0m \033[36m$LOCAL_PATH_DISPLAY\033[0m"
     print_mcp_group "local" "$LOCAL_NAME"
 fi
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# LINE 8: Settings indicator (Global + Local details)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Count global vs local MCP servers
-GLOBAL_MCP_COUNT=0
-LOCAL_MCP_COUNT=0
-for ((i=0; i<MCP_TOTAL; i++)); do
-    [ "${MCP_SCOPE[$i]}" = "global" ] && GLOBAL_MCP_COUNT=$((GLOBAL_MCP_COUNT + 1))
-    [ "${MCP_SCOPE[$i]}" = "local" ] && LOCAL_MCP_COUNT=$((LOCAL_MCP_COUNT + 1))
-done
-
-# Count local plugins if local settings exist
-LOCAL_PLUGINS=0
-if [ -n "$LOCAL_SETTINGS" ]; then
-    LOCAL_PLUGINS=$(jq -r '[.enabledPlugins | to_entries[] | select(.value == true)] | length' "$LOCAL_SETTINGS" 2>/dev/null || echo "0")
-fi
-
-if [ -z "$LOCAL_SETTINGS" ]; then
-    # Only global settings
-    echo -e "  \033[90m│\033[0m \033[90m⚙ global\033[0m \033[37m($GLOBAL_MCP_COUNT MCP)\033[0m"
-else
-    # Global + Local settings with details
-    # Abbreviate local path
-    LOCAL_PATH_DISPLAY="${LOCAL_SETTINGS/#$HOME/\~}"
-    echo -e "  \033[90m│\033[0m \033[90m⚙ global\033[0m \033[37m($GLOBAL_MCP_COUNT MCP)\033[0m"
-    echo -e "  \033[90m│\033[0m \033[32m⚙ local\033[0m \033[37m($LOCAL_MCP_COUNT MCP, $LOCAL_PLUGINS plugins)\033[0m \033[90m→\033[0m \033[36m$LOCAL_PATH_DISPLAY\033[0m"
+# If no MCP servers at all
+if [ $MCP_TOTAL -eq 0 ]; then
+    echo -e "  \033[90m│\033[0m \033[90m⚙ no MCP servers\033[0m"
 fi
 
 exit 0
