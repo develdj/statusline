@@ -83,34 +83,56 @@ case "$CURRENT_PROFILE" in
 esac
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MCP SERVERS
+# MCP SERVERS (Global + Local)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-declare -a MCP_SERVERS MCP_STATUS MCP_COMMANDS
+declare -a MCP_SERVERS MCP_STATUS MCP_COMMANDS MCP_SCOPE
 MCP_TOTAL=0
 MCP_HEALTHY=0
-SETTINGS_FILE="$HOME/.claude/settings.json"
+GLOBAL_SETTINGS="$HOME/.claude/settings.json"
 
-if [ -f "$SETTINGS_FILE" ]; then
-    MCP_TOTAL=$(jq -r '.mcpServers | keys | length' "$SETTINGS_FILE" 2>/dev/null || echo "0")
-    if [ "$MCP_TOTAL" -gt 0 ]; then
-        idx=0
-        while IFS= read -r name; do
-            [ -z "$name" ] && continue
-            cmd=$(jq -r ".mcpServers[\"$name\"].command // \"\"" "$SETTINGS_FILE" 2>/dev/null)
-            MCP_SERVERS[$idx]="$name"
-            MCP_COMMANDS[$idx]="$cmd"
-            status="unknown"
-            if [ -n "$cmd" ]; then
-                [[ "$cmd" == /* ]] && [ -x "$cmd" ] && status="ok"
-                command -v "$cmd" &>/dev/null && status="ok"
-            fi
-            MCP_STATUS[$idx]="$status"
-            [ "$status" = "ok" ] && MCP_HEALTHY=$((MCP_HEALTHY + 1))
-            idx=$((idx + 1))
-        done <<< "$(jq -r '.mcpServers | keys[]' "$SETTINGS_FILE" 2>/dev/null)"
-    fi
+# Function to get MCP servers from a settings file
+get_mcp_servers() {
+    local file=$1
+    local scope=$2
+    [ ! -f "$file" ] && return
+    local count=$(jq -r '.mcpServers | keys | length' "$file" 2>/dev/null || echo "0")
+    [ "$count" -eq 0 ] && return
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
+        cmd=$(jq -r ".mcpServers[\"$name\"].command // \"\"" "$file" 2>/dev/null)
+        MCP_SERVERS[$MCP_TOTAL]="$name"
+        MCP_COMMANDS[$MCP_TOTAL]="$cmd"
+        MCP_SCOPE[$MCP_TOTAL]="$scope"
+        status="unknown"
+        if [ -n "$cmd" ]; then
+            [[ "$cmd" == /* ]] && [ -x "$cmd" ] && status="ok"
+            command -v "$cmd" &>/dev/null && status="ok"
+        fi
+        MCP_STATUS[$MCP_TOTAL]="$status"
+        [ "$status" = "ok" ] && MCP_HEALTHY=$((MCP_HEALTHY + 1))
+        MCP_TOTAL=$((MCP_TOTAL + 1))
+    done <<< "$(jq -r '.mcpServers | keys[]' "$file" 2>/dev/null)"
+}
+
+# Get global servers first
+get_mcp_servers "$GLOBAL_SETTINGS" "global"
+
+# Find and get local servers
+LOCAL_SETTINGS=""
+LOCAL_NAME=""
+if [ -n "$CWD" ] && [ "$CWD" != "$HOME" ]; then
+    dir="$CWD"
+    while [ "$dir" != "/" ] && [ "$dir" != "$HOME" ]; do
+        if [ -f "$dir/.claude/settings.json" ]; then
+            LOCAL_SETTINGS="$dir/.claude/settings.json"
+            LOCAL_NAME=$(basename "$dir")
+            break
+        fi
+        dir=$(dirname "$dir")
+    done
 fi
+[ -n "$LOCAL_SETTINGS" ] && get_mcp_servers "$LOCAL_SETTINGS" "local"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SKILLS & PLUGINS COUNT
@@ -128,8 +150,8 @@ SKILL_PCT=$((SKILL_TOKENS_EST * 100 / SKILL_LIMIT))
 [ "$SKILL_PCT" -gt 100 ] && SKILL_PCT=100
 
 PLUGINS_ACTIVE=0; PLUGINS_TOTAL=0
-[ -f "$SETTINGS_FILE" ] && PLUGINS_TOTAL=$(jq -r '.enabledPlugins | length' "$SETTINGS_FILE" 2>/dev/null || echo "0")
-[ -f "$SETTINGS_FILE" ] && PLUGINS_ACTIVE=$(jq -r '[.enabledPlugins | to_entries[] | select(.value == true)] | length' "$SETTINGS_FILE" 2>/dev/null || echo "0")
+[ -f "$GLOBAL_SETTINGS" ] && PLUGINS_TOTAL=$(jq -r '.enabledPlugins | length' "$GLOBAL_SETTINGS" 2>/dev/null || echo "0")
+[ -f "$GLOBAL_SETTINGS" ] && PLUGINS_ACTIVE=$(jq -r '[.enabledPlugins | to_entries[] | select(.value == true)] | length' "$GLOBAL_SETTINGS" 2>/dev/null || echo "0")
 
 # MCP as percentage (10 servers = 100%)
 MCP_PCT=$((MCP_TOTAL * 10))
@@ -276,35 +298,92 @@ fi
 printf "\n"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LINE 7: MCP Servers list (compact)
+# LINE 7+: MCP Servers list (Global + Local, tab-separated, 3 per line)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-if [ "$MCP_TOTAL" -gt 0 ]; then
-    MCP_LINE="  \033[90m│\033[0m "
+# Function to format a single MCP server
+format_mcp_server() {
+    local idx=$1
+    local name="${MCP_SERVERS[$idx]}"
+    local cmd=$(basename "${MCP_COMMANDS[$idx]}" 2>/dev/null || echo "?")
+    [ "$cmd" = "node" ] && cmd="js"
+    local icon=$([ "${MCP_STATUS[$idx]}" = "ok" ] && echo "\033[32m●\033[0m" || echo "\033[31m○\033[0m")
+    local display="${name:0:12}"; [ ${#name} -gt 12 ] && display="${display}…"
+    echo "${icon}${display}\033[90m[${cmd}]\033[0m"
+}
+
+# Print servers with header, 3 per line with tabs
+print_mcp_group() {
+    local scope=$1
+    local header=$2
+    local count=0
+    local line=""
+
+    echo -e "  \033[90m│\033[0m \033[90m⚙ $header:\033[0m"
+
     for ((i=0; i<MCP_TOTAL; i++)); do
-        name="${MCP_SERVERS[$i]}"
-        cmd=$(basename "${MCP_COMMANDS[$i]}" 2>/dev/null || echo "?")
-        [ "$cmd" = "node" ] && cmd="js"
-        icon=$([ "${MCP_STATUS[$i]}" = "ok" ] && echo "\033[32m●\033[0m" || echo "\033[31m○\033[0m")
-        display="${name:0:10}"; [ ${#name} -gt 10 ] && display="${display}…"
-        MCP_LINE="${MCP_LINE}${icon}${display}\033[90m[${cmd}]\033[0m "
+        [ "${MCP_SCOPE[$i]}" != "$scope" ] && continue
+
+        server=$(format_mcp_server $i)
+        line="${line}\t${server}"
+        count=$((count + 1))
+
+        if [ $count -eq 3 ]; then
+            echo -e "  \033[90m│\033[0m${line}"
+            line=""
+            count=0
+        fi
     done
-    echo -e "$MCP_LINE"
+
+    # Print remaining servers
+    if [ $count -gt 0 ]; then
+        echo -e "  \033[90m│\033[0m${line}"
+    fi
+}
+
+# Print Global servers
+has_global=0
+for ((i=0; i<MCP_TOTAL; i++)); do
+    [ "${MCP_SCOPE[$i]}" = "global" ] && { has_global=1; break; }
+done
+[ $has_global -eq 1 ] && print_mcp_group "global" "Global"
+
+# Print Local servers
+has_local=0
+for ((i=0; i<MCP_TOTAL; i++)); do
+    [ "${MCP_SCOPE[$i]}" = "local" ] && { has_local=1; break; }
+done
+if [ $has_local -eq 1 ]; then
+    print_mcp_group "local" "$LOCAL_NAME"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LINE 8: Settings
+# LINE 8: Settings indicator (Global + Local details)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-LOCAL_SETTINGS=""
-if [ -n "$CWD" ] && [ "$CWD" != "$HOME" ]; then
-    dir="$CWD"
-    while [ "$dir" != "/" ] && [ "$dir" != "$HOME" ]; do
-        [ -f "$dir/.claude/settings.json" ] && { LOCAL_SETTINGS="$dir/.claude/settings.json"; break; }
-        dir=$(dirname "$dir")
-    done
+# Count global vs local MCP servers
+GLOBAL_MCP_COUNT=0
+LOCAL_MCP_COUNT=0
+for ((i=0; i<MCP_TOTAL; i++)); do
+    [ "${MCP_SCOPE[$i]}" = "global" ] && GLOBAL_MCP_COUNT=$((GLOBAL_MCP_COUNT + 1))
+    [ "${MCP_SCOPE[$i]}" = "local" ] && LOCAL_MCP_COUNT=$((LOCAL_MCP_COUNT + 1))
+done
+
+# Count local plugins if local settings exist
+LOCAL_PLUGINS=0
+if [ -n "$LOCAL_SETTINGS" ]; then
+    LOCAL_PLUGINS=$(jq -r '[.enabledPlugins | to_entries[] | select(.value == true)] | length' "$LOCAL_SETTINGS" 2>/dev/null || echo "0")
 fi
 
-[ -z "$LOCAL_SETTINGS" ] && printf "  \033[90m│\033[0m \033[90m⚙ global\033[0m\n" || printf "  \033[90m│\033[0m \033[32m⚙ global+local\033[0m\n"
+if [ -z "$LOCAL_SETTINGS" ]; then
+    # Only global settings
+    echo -e "  \033[90m│\033[0m \033[90m⚙ global\033[0m \033[37m($GLOBAL_MCP_COUNT MCP)\033[0m"
+else
+    # Global + Local settings with details
+    # Abbreviate local path
+    LOCAL_PATH_DISPLAY="${LOCAL_SETTINGS/#$HOME/\~}"
+    echo -e "  \033[90m│\033[0m \033[90m⚙ global\033[0m \033[37m($GLOBAL_MCP_COUNT MCP)\033[0m"
+    echo -e "  \033[90m│\033[0m \033[32m⚙ local\033[0m \033[37m($LOCAL_MCP_COUNT MCP, $LOCAL_PLUGINS plugins)\033[0m \033[90m→\033[0m \033[36m$LOCAL_PATH_DISPLAY\033[0m"
+fi
 
 exit 0
